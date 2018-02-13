@@ -99,10 +99,14 @@ int main(int argc, char* argv[]) {
   tensorflow::string cluster_spec;
   tensorflow::string job_name;
   int task_index = 0;
+  int intra_op_parallelism_threads = 0;
+  int inter_op_parallelism_threads = 0;
   std::vector<tensorflow::Flag> flag_list = {
       tensorflow::Flag("cluster_spec", &cluster_spec, "cluster spec"),
       tensorflow::Flag("job_name", &job_name, "job name"),
       tensorflow::Flag("task_id", &task_index, "task id"),
+      tensorflow::Flag("intra_op_parallelism_threads", &intra_op_parallelism_threads, "intra_op_parallelism_threads"),
+      tensorflow::Flag("inter_op_parallelism_threads", &inter_op_parallelism_threads, "inter_op_parallelism_threads"),
   };
   tensorflow::string usage = tensorflow::Flags::Usage(argv[0], flag_list);
   const bool parse_result = tensorflow::Flags::Parse(&argc, argv, flag_list);
@@ -115,6 +119,9 @@ int main(int argc, char* argv[]) {
   tensorflow::ServerDef server_def;
   tensorflow::Status s = tensorflow::FillServerDef(cluster_spec, job_name,
                                                    task_index, &server_def);
+  server_def.mutable_default_session_config()->set_inter_op_parallelism_threads(inter_op_parallelism_threads);
+  server_def.mutable_default_session_config()->set_intra_op_parallelism_threads(intra_op_parallelism_threads);
+  
   if (!s.ok()) {
     std::cerr << "ERROR: " << s.error_message() << std::endl;
     Usage(argv[0]);

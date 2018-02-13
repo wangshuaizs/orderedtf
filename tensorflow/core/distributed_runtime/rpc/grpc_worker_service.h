@@ -17,6 +17,8 @@ limitations under the License.
 #define THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_WORKER_SERVICE_H_
 
 #include "tensorflow/core/distributed_runtime/worker.h"
+#include <mutex>
+#include <condition_variable>
 
 namespace grpc {
 class ByteBuffer;
@@ -43,6 +45,20 @@ class GrpcWorker : public Worker {
                     LoggingResponse* response, StatusCallback done);
 
   WorkerEnv* env();
+private:
+  std::mutex xmu_;
+  struct OrderedChannel{
+    std::unique_ptr<std::mutex> xmu_;
+    std::unique_ptr<std::condition_variable> xcv_;
+    volatile int counter;
+  OrderedChannel():
+    counter(0),
+    xmu_(new std::mutex()),
+    xcv_(new std::condition_variable()) {}
+    OrderedChannel(OrderedChannel&&) = default;
+    OrderedChannel(const OrderedChannel&) = delete;
+  };
+  std::unordered_map<string, OrderedChannel> channels;
 };
 
 std::unique_ptr<GrpcWorker> NewGrpcWorker(WorkerEnv* worker_env);

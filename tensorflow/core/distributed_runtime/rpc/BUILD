@@ -172,7 +172,7 @@ cc_library(
 tf_cuda_library(
     name = "grpc_worker_service",
     srcs = ["grpc_worker_service.cc"],
-    hdrs = ["grpc_worker_service.h"],
+    hdrs = ["grpc_worker_service.h", "rpc_orders.h"],
     deps = [
         ":async_service_interface",
         ":grpc_call",

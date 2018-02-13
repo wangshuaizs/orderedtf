@@ -45,10 +45,15 @@ limitations under the License.
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/tracing.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
+#include "re2/re2.h"
+#include <chrono>
+#include <thread>
 
 namespace tensorflow {
 
 namespace {
+
+#include "tensorflow/core/distributed_runtime/rpc/rpc_orders.h"
 
 class GrpcWorkerService : public AsyncServiceInterface {
  public:
@@ -340,7 +345,7 @@ void GrpcWorker::GrpcRecvTensorAsync(CallOptions* opts,
   opts->SetCancelCallback([this, step_id]() { AbortStep(step_id); });
   env_->rendezvous_mgr->RecvLocalAsync(
       step_id, parsed,
-      [opts, response, done, src_dev](const Status& status,
+      [this, opts, response, done, src_dev, step_id, parsed](const Status& status,
                                       const Rendezvous::Args& send_args,
                                       const Rendezvous::Args& recv_args,
                                       const Tensor& val, const bool is_dead) {
@@ -381,6 +386,27 @@ void GrpcWorker::GrpcRecvTensorAsync(CallOptions* opts,
               done(errors::Internal("No GPU device in process"));
 #endif  // GOOGLE_CUDA
             } else {
+              string rpc_name;
+              RE2::FullMatch(parsed.edge_name.ToString(), "edge_\\d+_(.+)/read", &rpc_name);
+              if (rpc_list.count(rpc_name) > 0){
+		const auto key = std::to_string(step_id) + "|" + parsed.dst_device.ToString();
+		const auto rpc_order = rpc_list[rpc_name];
+		  
+		std::unique_lock<std::mutex> channel_lock(xmu_);
+		auto& channel = channels[key];
+		channel_lock.unlock();
+		{
+		  std::unique_lock<std::mutex> lock(*channel.xmu_);
+		  int current_count = channel.counter;
+
+		  channel.xcv_->wait(lock, [rpc_order, &channel](){
+				  return channel.counter >= rpc_order;
+				  });
+		  LOG(WARNING) << "MATCHED! " << rpc_name << "(" << rpc_order << "/" << current_count << "->" << channel.counter <<") @" << key;
+		  channel.counter += 1;
+		  channel.xcv_->notify_all();
+		}
+	      }
               grpc::EncodeTensorToByteBuffer(is_dead, val, response);
               done(Status::OK());
             }
